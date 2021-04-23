@@ -1,0 +1,155 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from Lattice1D import Lattice1D
+from scipy.optimize import curve_fit
+
+
+lattice_size = 60
+
+def gaussian(x, a=1, b=lattice_size/2, c=10):
+    # a - amplitude
+    # b - mean
+    # c - st.dev.
+    return a * np.exp(-(x - b)**2 / (2 * c**2))
+
+def nagumo(u, a):
+    """Cubic nonlinearity"""
+    return u * (1-u) * (u-a)
+
+x = np.linspace(0, lattice_size, num=lattice_size+1, endpoint=True)
+lat_lin = (1 / lattice_size) * x # Linear IC for Naguomo LDE
+lat_front1 = np.zeros(len(x))
+lat_front1[-1] = 1 # End = 1 IC for Nagumo LDE
+lat_front0 = np.empty(len(x))
+lat_front0.fill(1)
+lat_front0[0] = 0 # End = 0 IC for Nagumo LDE
+lat_pulse = gaussian(x, c=3)
+lat1 = gaussian(x) # Gaussian IC for pure diffusion
+
+# Testing pure diffusion for a Gaussian
+gauss_diff = Lattice1D(lat1, D=20, R=lambda u: 0, bc=[0,0])
+gauss_diff.runToEq()
+gauss_diff.plotFrameN(0)
+gauss_diff.plotFrameN(480)
+gauss_diff.plotFinal()
+
+# Testing out travelling wave sol'ns for a = 0.5, starting from linear IC
+trav_wave = Lattice1D(lat_lin, R=lambda u: nagumo(u, 0.5), bc=[0, 1])
+trav_wave.runToEq()
+trav_wave.plotAnimation()
+
+# Travelling wave sol'n for a = 0.1, starting from end = 1 IC
+# Shows good front behavior for 1 equilibrium dominating
+trav_wave = Lattice1D(lat_front1, D=1, R=lambda u: nagumo(u, 0.1), bc=[0, 1])
+trav_wave.runToEq()
+#trav_wave.plotAnimation()
+trav_wave.plotFrameN(0)
+trav_wave.plotFrameN(len(trav_wave.lat_series)//2)
+trav_wave.plotFinal()
+
+# Travelling wave sol'n for a = 0.9, starting from end = 0 IC
+# Shows good front behavior for 0 equilibrium dominating
+trav_wave = Lattice1D(lat_front0, D=1, R=lambda u: nagumo(u, 0.9), bc=[0, 1])
+trav_wave.runToEq()
+#trav_wave.plotAnimation()
+trav_wave.plotFrameN(0)
+trav_wave.plotFrameN(len(trav_wave.lat_series)//2)
+trav_wave.plotFinal()
+
+# Travelling wave sol'n for a = 0.5, starting from end = 0 IC
+# Stalls out - propagation failure
+trav_wave = Lattice1D(lat_front0, D=30, R=lambda u: nagumo(u, 0.5), bc=[0, 1])
+trav_wave.runToEq()
+trav_wave.plotFinal()
+
+# Travelling wave sol'n for a = 0.1, starting from gaussian IC
+# Thought it'd be a pulse but it just turns into a front
+trav_wave = Lattice1D(lat_pulse, D=30, R=lambda u: nagumo(u, 0.1), bc=[0, 1])
+trav_wave.runToEq()
+trav_wave.plotAnimation()
+
+# Timing convergence to equilibrium
+eq_times = []
+a_vals = np.linspace(0.01, 1, num=99, endpoint=False)
+for i in a_vals:
+    trav_wave = Lattice1D(lat_lin, tmax=10000, R=lambda u: nagumo(u, i), bc=[0, 1])
+    trav_wave.runToEq()
+    eq_times.append(trav_wave.finalTime)
+eq_times = np.array(eq_times)
+plt.plot(a_vals[1:50], np.log(eq_times[1:50]), linestyle='solid', color='rebeccapurple')
+plt.xlabel("Value of parameter a")
+plt.ylabel("log(time to equilibrium)")
+plt.show()
+
+# Fitting time to convergence with an exponential using scipy curve_fit - cannot find optimal parameters
+def exp_fit(x, a, b, c):
+    y = a * np.exp(b*x) + c
+    return y
+fit = curve_fit(exp_fit, a_vals[:50], eq_times[:50], p0=[1.0, 17.4, 0.0])
+fit_eq = fit[0][0] * np.exp(fit[0][1] * a_vals[:50]) + fit[0][2]
+print(str(fit[0][0]) + ", " + str(fit[0][1]) + ", " + str(fit[0][2]))
+plt.plot(a_vals, eq_times, linestyle='solid', color='rebeccapurple', label='Sim data')
+plt.plot(a_vals[:50], fit_eq, linestyle='solid', color='goldenrod', label='Exponential fit')
+plt.xlabel("Value of parameter a")
+plt.ylabel("Time to equilibrium")
+plt.show()
+
+# Numerically verifying fixed points (0,0), (a,a), (1,1), a=0.5
+a = 0.5
+
+lat00 = 0 * x
+test00 = Lattice1D(lat00, R=lambda u: nagumo(u,a), bc=[0,0])
+test00.runToEq()
+#test00.plotAnimation()
+
+lataa = 0 * x + a
+testaa = Lattice1D(lataa, R=lambda u: nagumo(u,a), bc=[a,a])
+testaa.runToEq()
+#testaa.plotAnimation()
+
+lat11 = 0 * x + 1
+test11 = Lattice1D(lat11, R=lambda u: nagumo(u,a), bc=[1,1])
+test11.runToEq()
+#test11.plotAnimation()
+
+# Verifying stability of 0, 1, a
+# Perturb 0 equilibrium slightly, expect it to go to uniform 0
+lat0_pert = lat00 + 0.1
+test_lat0_pert = Lattice1D(lat0_pert, R=lambda u: nagumo(u,a), bc=[0.1,0.1])
+test_lat0_pert.runToEq()
+test_lat0_pert.plotFinal()
+# Perturb 1 equilibrium slightly, expect it to go to uniform 1
+lat1_pert = lat11 - 0.1
+test_lat1_pert = Lattice1D(lat1_pert, R=lambda u: nagumo(u,a), bc=[0.9,0.9])
+test_lat1_pert.runToEq()
+test_lat1_pert.plotFinal()
+# Perturb a equilibrium upwards, expect it to go to uniform 1
+lata_pert_up = lataa + 0.1
+test_lata_pert_up = Lattice1D(lata_pert_up, R=lambda u: nagumo(u,a), bc=[a+0.1, a+0.1])
+test_lata_pert_up.runToEq()
+test_lata_pert_up.plotFinal()
+# Perturb a equilibrium downwards, expect it to go to uniform 0
+lata_pert_down = lataa - 0.1
+test_lata_pert_down = Lattice1D(lata_pert_down, R=lambda u: nagumo(u, a), bc=[a - 0.1, a - 0.1])
+test_lata_pert_down.runToEq()
+test_lata_pert_down.plotFinal()
+
+# Running the lattice from a periodic initial condition
+lat_per = np.zeros(lattice_size)
+for i in range(lattice_size):
+    if i % 4 == 0:
+        lat_per[i] = 0.8
+    elif i % 4 == 1:
+        lat_per[i] = 0.25
+    elif i % 4 == 2:
+        lat_per[i] = 0.8
+    elif i % 4 == 3:
+        lat_per[i] = 0.9
+lat_per[:10] = 0
+lat_per[51:] = 1
+
+trav_wave = Lattice1D(lat_per, D=0.0625, R=lambda u: nagumo(u, 0.63), bc=[0, 1], dt=0.1, tmax=1000)
+trav_wave.runToEq()
+trav_wave.plotFrameN(0)
+trav_wave.plotFrameN(3826)
+trav_wave.plotFinal()
